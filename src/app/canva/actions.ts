@@ -104,7 +104,7 @@ export async function updateCanvaAction(
     ids?: string[];
     filters?: PrayerFilters;
   },
-  groupBy: "ministry" | "category" = "ministry"
+  groupBy: "ministry" | "category" = "category"
 ): Promise<UpdateCanvaResult> {
   const prayers = await getPrayersForCanvaSelection(selection);
   const connection = await getCanvaConnection();
