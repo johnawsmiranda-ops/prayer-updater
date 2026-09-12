@@ -1,5 +1,6 @@
 import { getNeedsReviewThreshold } from "@/lib/needsReview";
 import { logoutAction } from "@/lib/actions/auth";
+import RestoreForm from "./RestoreForm";
 
 export default async function SettingsPage() {
   const threshold = getNeedsReviewThreshold();
@@ -35,6 +36,11 @@ export default async function SettingsPage() {
         <a href="/api/export" className="btn btn-secondary">
           Download Excel file
         </a>
+      </section>
+
+      <section className="card p-5">
+        <h2 className="text-sm font-semibold mb-2">Restore from Excel file</h2>
+        <RestoreForm />
       </section>
 
       <section className="card p-5">

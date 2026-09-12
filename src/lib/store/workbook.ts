@@ -155,10 +155,7 @@ function rowToCanva(row: Record<string, unknown> | undefined): RawCanvaConnectio
   };
 }
 
-export async function loadDb(): Promise<Db> {
-  const bytes = await readWorkbookBytes();
-  if (!bytes) return emptyDb();
-
+function parseWorkbookBytes(bytes: Buffer): Db {
   const wb = XLSX.read(bytes, { type: "buffer" });
   const prayers = sheetRows(wb.Sheets[SHEET_PRAYERS]).map(rowToPrayer);
   const history = sheetRows(wb.Sheets[SHEET_HISTORY]).map(rowToHistory);
@@ -166,6 +163,29 @@ export async function loadDb(): Promise<Db> {
   const canva = rowToCanva(canvaRows[0]);
 
   return { prayers, history, canva };
+}
+
+export async function loadDb(): Promise<Db> {
+  const bytes = await readWorkbookBytes();
+  if (!bytes) return emptyDb();
+  return parseWorkbookBytes(bytes);
+}
+
+/**
+ * Replaces the ENTIRE database with the contents of an uploaded .xlsx file
+ * (same three-sheet shape this app itself writes). Used by the Settings →
+ * "Restore from Excel file" admin tool — e.g. to recover onto a freshly
+ * connected Blob store from a known-good local copy.
+ */
+export async function restoreDbFromBytes(bytes: Buffer): Promise<Db> {
+  const db = parseWorkbookBytes(bytes);
+  const run = async () => {
+    await saveDb(db);
+    return db;
+  };
+  const scheduled = writeQueue.then(run, run);
+  writeQueue = scheduled.catch(() => undefined);
+  return scheduled;
 }
 
 export async function saveDb(db: Db): Promise<void> {
