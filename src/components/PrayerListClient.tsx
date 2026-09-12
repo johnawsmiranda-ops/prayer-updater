@@ -64,6 +64,7 @@ export default function PrayerListClient({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [view, setView] = useState<"list" | "grid">("list");
   const [notice, setNotice] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const notify = (message: string) => setNotice(message);
@@ -321,8 +322,10 @@ export default function PrayerListClient({
             onClick={() => {
               const count = selected.size;
               if (confirm(`Delete ${count} prayer${count === 1 ? "" : "s"}? This cannot be undone.`)) {
+                setDeleting(true);
                 startTransition(() => {
                   bulkDeletePrayerAction(Array.from(selected)).then(() => {
+                    setDeleting(false);
                     clearSelectionAnd(() => {});
                     notify(`${count} prayer${count === 1 ? "" : "s"} deleted.`);
                   });
@@ -330,7 +333,7 @@ export default function PrayerListClient({
               }
             }}
           >
-            🗑 Delete
+            {deleting ? "Deleting…" : "🗑 Delete"}
           </button>
 
           {!archiveView && (
@@ -849,6 +852,7 @@ function PrayerRow({
 }) {
   const [draft, setDraft] = useState(prayer);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const flagged = useMemo(() => needsReview(prayer, reviewThresholdDays), [prayer, reviewThresholdDays]);
   const days = useMemo(() => daysSinceUpdate(prayer), [prayer]);
@@ -1029,13 +1033,17 @@ function PrayerRow({
                 onClick={() => {
                   setMenuOpen(false);
                   if (confirm(`Delete the prayer request for ${prayer.name}? This cannot be undone.`)) {
+                    setDeleting(true);
                     startTransition(() => {
-                      deletePrayerAction(prayer.id).then(() => onNotify("Prayer deleted."));
+                      deletePrayerAction(prayer.id).then(() => {
+                        setDeleting(false);
+                        onNotify("Prayer deleted.");
+                      });
                     });
                   }
                 }}
               >
-                Delete
+                {deleting ? "Deleting…" : "Delete"}
               </button>
             </div>
           </>

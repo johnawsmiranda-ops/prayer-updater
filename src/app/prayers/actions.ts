@@ -8,6 +8,10 @@ import {
   archivePrayer,
   reactivatePrayer,
   deletePrayer,
+  bulkMarkAnswered,
+  bulkArchivePrayers,
+  bulkReactivatePrayers,
+  bulkDeletePrayers,
   type NewPrayerInput,
   type PrayerUpdateInput,
 } from "@/lib/prayers";
@@ -54,23 +58,28 @@ export async function deletePrayerAction(id: string) {
 }
 
 // --- Bulk variants, for the toolbar's multi-select actions ---
+//
+// These do the whole selected batch in a single read-modify-write round trip
+// to Blob storage (see bulk* in lib/prayers.ts), instead of looping the
+// single-item helper once per id -- that loop was the main reason deleting
+// (or archiving/marking answered on) more than a row or two felt slow.
 
 export async function bulkMarkAnsweredAction(ids: string[]) {
-  await Promise.all(ids.map((id) => markAnswered(id)));
+  await bulkMarkAnswered(ids);
   touch();
 }
 
 export async function bulkArchivePrayerAction(ids: string[]) {
-  await Promise.all(ids.map((id) => archivePrayer(id)));
+  await bulkArchivePrayers(ids);
   touch();
 }
 
 export async function bulkReactivatePrayerAction(ids: string[]) {
-  await Promise.all(ids.map((id) => reactivatePrayer(id)));
+  await bulkReactivatePrayers(ids);
   touch();
 }
 
 export async function bulkDeletePrayerAction(ids: string[]) {
-  await Promise.all(ids.map((id) => deletePrayer(id)));
+  await bulkDeletePrayers(ids);
   touch();
 }

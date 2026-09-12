@@ -196,9 +196,74 @@ export async function reactivatePrayer(id: string): Promise<Prayer> {
 }
 
 export async function deletePrayer(id: string): Promise<void> {
+  await bulkDeletePrayers([id]);
+}
+
+// --- Bulk variants ---------------------------------------------------------
+// Each mutation (single or bulk) round-trips the whole workbook to Vercel
+// Blob: a full read, then a full write. Calling the single-item helpers in a
+// loop for a multi-select action means N of those full round trips back to
+// back -- for a handful of selected rows that adds up to several seconds and
+// feels like the delete button is stuck. Doing the whole batch inside ONE
+// mutateDb call means exactly one read and one write no matter how many rows
+// are selected.
+
+function applyStatusToAll(
+  db: Awaited<ReturnType<typeof loadDb>>,
+  ids: string[],
+  status: PrayerStatus,
+  extra?: Partial<Pick<Prayer, "date_answered">>
+) {
+  const idSet = new Set(ids);
+  const ts = new Date().toISOString();
+  for (const prayer of db.prayers) {
+    if (!idSet.has(prayer.id)) continue;
+    if (prayer.status !== status) {
+      db.history.push({
+        id: crypto.randomUUID(),
+        prayer_id: prayer.id,
+        previous_status: prayer.status,
+        new_status: status,
+        previous_request: prayer.prayer_request,
+        new_request: prayer.prayer_request,
+        changed_at: ts,
+        changed_by: "admin",
+      });
+    }
+    prayer.status = status;
+    if (extra) Object.assign(prayer, extra);
+    prayer.updated_at = ts;
+    prayer.last_updated = ts;
+  }
+}
+
+export async function bulkMarkAnswered(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
   await mutateDb((db) => {
-    db.prayers = db.prayers.filter((p) => p.id !== id);
-    db.history = db.history.filter((h) => h.prayer_id !== id);
+    applyStatusToAll(db, ids, "ANSWERED", { date_answered: new Date().toISOString().slice(0, 10) });
+  });
+}
+
+export async function bulkArchivePrayers(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  await mutateDb((db) => {
+    applyStatusToAll(db, ids, "ARCHIVED");
+  });
+}
+
+export async function bulkReactivatePrayers(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  await mutateDb((db) => {
+    applyStatusToAll(db, ids, "ACTIVE", { date_answered: null });
+  });
+}
+
+export async function bulkDeletePrayers(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const idSet = new Set(ids);
+  await mutateDb((db) => {
+    db.prayers = db.prayers.filter((p) => !idSet.has(p.id));
+    db.history = db.history.filter((h) => !idSet.has(h.prayer_id));
   });
 }
 
