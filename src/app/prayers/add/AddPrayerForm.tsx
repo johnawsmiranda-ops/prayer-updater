@@ -35,7 +35,13 @@ export default function AddPrayerForm({ categories }: { categories: string[] }) 
         </div>
         <div>
           <label className="block text-sm font-medium mb-1.5">Assigned Ministry</label>
-          <input name="assigned_ministry" list="ministry-options" className="input" placeholder="Pastors, Mens, Youth, or Women" />
+          <input
+            name="assigned_ministry"
+            list="ministry-options"
+            autoComplete="off"
+            className="input"
+            placeholder="Pastors, Mens, Youth, or Women"
+          />
           <datalist id="ministry-options">
             {CANONICAL_MINISTRIES.map((m) => (
               <option key={m} value={m} />
