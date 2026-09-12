@@ -34,13 +34,19 @@ function blobConfigured(): boolean {
 
 export async function readWorkbookBytes(): Promise<Buffer | null> {
   if (blobConfigured()) {
-    const { list } = await import("@vercel/blob");
-    const { blobs } = await list({ prefix: BLOB_PATHNAME, limit: 1 });
-    const match = blobs.find((b) => b.pathname === BLOB_PATHNAME);
-    if (!match) return null;
-    const res = await fetch(match.url, { cache: "no-store" });
-    if (!res.ok) throw new Error(`Failed to fetch prayer list blob (${res.status})`);
-    return Buffer.from(await res.arrayBuffer());
+    // The store this app uses ("prayer-updater-blob") is configured for
+    // PRIVATE access, so this must go through the SDK's `get()` (which signs
+    // the request with whatever auth is configured — a static token, or the
+    // newer OIDC-based connection) rather than a plain `fetch()` of the blob
+    // URL, which private blobs reject.
+    const { get } = await import("@vercel/blob");
+    const result = await get(BLOB_PATHNAME, { access: "private" });
+    if (!result || !result.stream) return null;
+    const chunks: Buffer[] = [];
+    for await (const chunk of result.stream as unknown as AsyncIterable<Buffer | Uint8Array>) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks);
   }
 
   try {
@@ -55,7 +61,7 @@ export async function writeWorkbookBytes(bytes: Buffer): Promise<void> {
   if (blobConfigured()) {
     const { put } = await import("@vercel/blob");
     await put(BLOB_PATHNAME, bytes, {
-      access: "public",
+      access: "private",
       addRandomSuffix: false,
       allowOverwrite: true,
       contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
