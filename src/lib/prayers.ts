@@ -2,6 +2,7 @@ import "server-only";
 import crypto from "crypto";
 import { loadDb, mutateDb } from "@/lib/store/workbook";
 import type { Prayer, PrayerStatus } from "@/types/prayer";
+import { CANONICAL_MINISTRIES, canonicalMinistriesFor } from "@/lib/ministries";
 
 export interface PrayerFilters {
   search?: string;
@@ -34,7 +35,7 @@ function matchesFilters(p: Prayer, filters: PrayerFilters): boolean {
   if (filters.status && p.status !== filters.status) return false;
   if (filters.year && p.year !== filters.year) return false;
   if (filters.category && p.category !== filters.category) return false;
-  if (filters.ministry && p.assigned_ministry !== filters.ministry) return false;
+  if (filters.ministry && !canonicalMinistriesFor(p.assigned_ministry).includes(filters.ministry)) return false;
   if (filters.month && new Date(p.date_added).getMonth() + 1 !== filters.month) return false;
 
   if (filters.search && filters.search.trim().length > 0) {
@@ -244,18 +245,20 @@ export async function getFilterOptions(): Promise<{
   const db = await loadDb();
   const years = new Set<number>();
   const categories = new Set<string>();
-  const ministries = new Set<string>();
 
   for (const p of db.prayers) {
     if (p.year) years.add(p.year);
     if (p.category) categories.add(p.category);
-    if (p.assigned_ministry) ministries.add(p.assigned_ministry);
   }
 
   return {
     years: Array.from(years).sort((a, b) => b - a),
     categories: Array.from(categories).sort(),
-    ministries: Array.from(ministries).sort(),
+    // Filter dropdown always shows just the 4 canonical ministries (not raw
+    // historical values like "Mens/Youth") — canonicalMinistriesFor() maps
+    // each prayer's raw ministry text into one or more of these buckets, so
+    // filtering by "Youth" also matches a prayer tagged "Mens/Youth".
+    ministries: [...CANONICAL_MINISTRIES],
   };
 }
 
