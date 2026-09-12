@@ -2,16 +2,11 @@
 
 import { useActionState } from "react";
 import { addPrayerAction, type AddPrayerState } from "./actions";
+import { CANONICAL_MINISTRIES } from "@/lib/ministries";
 
 const initialState: AddPrayerState = {};
 
-export default function AddPrayerForm({
-  categories,
-  ministries,
-}: {
-  categories: string[];
-  ministries: string[];
-}) {
+export default function AddPrayerForm({ categories }: { categories: string[] }) {
   const [state, formAction, pending] = useActionState(addPrayerAction, initialState);
   const currentYear = new Date().getFullYear();
 
@@ -40,9 +35,9 @@ export default function AddPrayerForm({
         </div>
         <div>
           <label className="block text-sm font-medium mb-1.5">Assigned Ministry</label>
-          <input name="assigned_ministry" list="ministry-options" className="input" />
+          <input name="assigned_ministry" list="ministry-options" className="input" placeholder="Pastors, Mens, Youth, or Women" />
           <datalist id="ministry-options">
-            {ministries.map((m) => (
+            {CANONICAL_MINISTRIES.map((m) => (
               <option key={m} value={m} />
             ))}
           </datalist>

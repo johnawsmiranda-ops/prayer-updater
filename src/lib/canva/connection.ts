@@ -1,40 +1,10 @@
 import "server-only";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { loadDb, mutateDb, type RawCanvaConnection } from "@/lib/store/workbook";
 import { refreshCanvaToken } from "./oauth";
 import type { CanvaConnection, CanvaConnectionStatus, CanvaSyncSummary } from "@/types/prayer";
-import type { Database } from "@/lib/supabase/database.types";
-
-const ADMIN_USER_ID = "admin";
-
-interface RawConnection extends Omit<CanvaConnection, "field_mapping" | "last_sync_summary"> {
-  access_token: string | null;
-  refresh_token: string | null;
-  field_mapping: Record<string, string> | null;
-  last_sync_summary: CanvaSyncSummary | null;
-}
-
-/** Fetches (or lazily creates) the single admin's Canva connection row. */
-async function getOrCreateRawConnection(): Promise<RawConnection> {
-  const supabase = getSupabaseServerClient();
-  const { data, error } = await supabase
-    .from("canva_connections")
-    .select("*")
-    .eq("user_id", ADMIN_USER_ID)
-    .maybeSingle();
-  if (error) throw error;
-  if (data) return data as RawConnection;
-
-  const { data: created, error: createError } = await supabase
-    .from("canva_connections")
-    .insert({ user_id: ADMIN_USER_ID })
-    .select("*")
-    .single();
-  if (createError) throw createError;
-  return created as RawConnection;
-}
 
 /** Public shape — never includes access_token / refresh_token. */
-export function toPublicConnection(raw: RawConnection): CanvaConnection {
+export function toPublicConnection(raw: RawCanvaConnection): CanvaConnection {
   const { access_token: _at, refresh_token: _rt, ...rest } = raw;
   void _at;
   void _rt;
@@ -42,7 +12,8 @@ export function toPublicConnection(raw: RawConnection): CanvaConnection {
 }
 
 export async function getCanvaConnection(): Promise<CanvaConnection> {
-  return toPublicConnection(await getOrCreateRawConnection());
+  const db = await loadDb();
+  return toPublicConnection(db.canva);
 }
 
 export async function saveOAuthTokens(input: {
@@ -50,20 +21,13 @@ export async function saveOAuthTokens(input: {
   refreshToken: string;
   expiresInSeconds: number;
 }): Promise<void> {
-  const supabase = getSupabaseServerClient();
-  const existing = await getOrCreateRawConnection();
-  const expiresAt = new Date(Date.now() + input.expiresInSeconds * 1000).toISOString();
-
-  const { error } = await supabase
-    .from("canva_connections")
-    .update({
-      access_token: input.accessToken,
-      refresh_token: input.refreshToken,
-      token_expires_at: expiresAt,
-      connection_status: "CONNECTED",
-    })
-    .eq("id", existing.id);
-  if (error) throw error;
+  await mutateDb((db) => {
+    db.canva.access_token = input.accessToken;
+    db.canva.refresh_token = input.refreshToken;
+    db.canva.token_expires_at = new Date(Date.now() + input.expiresInSeconds * 1000).toISOString();
+    db.canva.connection_status = "CONNECTED";
+    db.canva.updated_at = new Date().toISOString();
+  });
 }
 
 export async function saveTemplateSelection(input: {
@@ -72,52 +36,38 @@ export async function saveTemplateSelection(input: {
   templateName?: string | null;
   fieldMapping?: Record<string, string>;
 }): Promise<void> {
-  const supabase = getSupabaseServerClient();
-  const existing = await getOrCreateRawConnection();
-
-  const patch: Database["public"]["Tables"]["canva_connections"]["Update"] = {};
-  if (input.templateId !== undefined) patch.template_id = input.templateId;
-  if (input.designId !== undefined) patch.design_id = input.designId;
-  if (input.templateName !== undefined) patch.template_name = input.templateName;
-  if (input.fieldMapping !== undefined) patch.field_mapping = input.fieldMapping;
-
-  const { error } = await supabase.from("canva_connections").update(patch).eq("id", existing.id);
-  if (error) throw error;
+  await mutateDb((db) => {
+    if (input.templateId !== undefined) db.canva.template_id = input.templateId;
+    if (input.designId !== undefined) db.canva.design_id = input.designId;
+    if (input.templateName !== undefined) db.canva.template_name = input.templateName;
+    if (input.fieldMapping !== undefined) db.canva.field_mapping = input.fieldMapping;
+    db.canva.updated_at = new Date().toISOString();
+  });
 }
 
 export async function disconnectCanva(): Promise<void> {
-  const supabase = getSupabaseServerClient();
-  const existing = await getOrCreateRawConnection();
-  const { error } = await supabase
-    .from("canva_connections")
-    .update({
-      access_token: null,
-      refresh_token: null,
-      token_expires_at: null,
-      connection_status: "DISCONNECTED",
-    })
-    .eq("id", existing.id);
-  if (error) throw error;
+  await mutateDb((db) => {
+    db.canva.access_token = null;
+    db.canva.refresh_token = null;
+    db.canva.token_expires_at = null;
+    db.canva.connection_status = "DISCONNECTED";
+    db.canva.updated_at = new Date().toISOString();
+  });
 }
 
 export async function recordSync(summary: CanvaSyncSummary): Promise<void> {
-  const supabase = getSupabaseServerClient();
-  const existing = await getOrCreateRawConnection();
-  const { error } = await supabase
-    .from("canva_connections")
-    .update({ last_synced_at: summary.syncedAt, last_sync_summary: summary })
-    .eq("id", existing.id);
-  if (error) throw error;
+  await mutateDb((db) => {
+    db.canva.last_synced_at = summary.syncedAt;
+    db.canva.last_sync_summary = summary;
+    db.canva.updated_at = new Date().toISOString();
+  });
 }
 
 export async function setConnectionError(): Promise<void> {
-  const supabase = getSupabaseServerClient();
-  const existing = await getOrCreateRawConnection();
-  const { error } = await supabase
-    .from("canva_connections")
-    .update({ connection_status: "ERROR" as CanvaConnectionStatus })
-    .eq("id", existing.id);
-  if (error) throw error;
+  await mutateDb((db) => {
+    db.canva.connection_status = "ERROR" as CanvaConnectionStatus;
+    db.canva.updated_at = new Date().toISOString();
+  });
 }
 
 /**
@@ -127,7 +77,8 @@ export async function setConnectionError(): Promise<void> {
  * text-export flow in that case.
  */
 export async function getValidAccessToken(): Promise<string | null> {
-  const raw = await getOrCreateRawConnection();
+  const db = await loadDb();
+  const raw = db.canva;
   if (!raw.access_token || !raw.refresh_token) return null;
 
   const expiresAt = raw.token_expires_at ? new Date(raw.token_expires_at).getTime() : 0;

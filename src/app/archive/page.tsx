@@ -15,14 +15,15 @@ export default async function ArchivePage({ searchParams }: PageProps<"/archive"
   const ministry = get("ministry");
   const sort = (get("sort") as SortKey | undefined) ?? "last_updated";
   const page = get("page") ? Number(get("page")) : 1;
+  const pageSize = get("pageSize") ? Number(get("pageSize")) : 10;
   const threshold = getNeedsReviewThreshold();
 
-  const [{ prayers, total, pageSize }, options, counts] = await Promise.all([
+  const [{ prayers, total }, options, counts] = await Promise.all([
     listPrayers({
       filters: { search, year, month, status: "ARCHIVED", category, ministry },
       sort,
       page,
-      pageSize: 25,
+      pageSize,
     }),
     getFilterOptions(),
     getPrayerCounts(threshold),

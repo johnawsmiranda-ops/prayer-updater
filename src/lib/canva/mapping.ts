@@ -1,4 +1,5 @@
 import type { Prayer } from "@/types/prayer";
+import { CANONICAL_MINISTRIES, canonicalMinistriesFor } from "@/lib/ministries";
 
 /**
  * Groups active prayers into the broad buckets the Canva template's fields
@@ -101,6 +102,101 @@ export function buildAutofillTextData(
   }
 
   return data;
+}
+
+/**
+ * Groups prayers into the church's 4 real ministry sections — Pastors,
+ * Mens, Youth, Women — matching how the Canva design's pages are actually
+ * laid out. Raw `assigned_ministry` text (free-form, imported from the old
+ * Excel data) is mapped down to these 4 buckets via canonicalMinistriesFor;
+ * a combined value like "Mens/Youth" puts that prayer in both buckets
+ * rather than guessing which one it "really" belongs to. Prayers with no
+ * recognizable ministry land in "Unassigned".
+ */
+export function groupPrayersByMinistry(prayers: Prayer[]): Record<string, Prayer[]> {
+  const groups: Record<string, Prayer[]> = {};
+  for (const ministry of CANONICAL_MINISTRIES) groups[ministry] = [];
+  groups["Unassigned"] = [];
+
+  for (const prayer of prayers) {
+    for (const bucket of canonicalMinistriesFor(prayer.assigned_ministry)) {
+      if (!groups[bucket]) groups[bucket] = [];
+      groups[bucket].push(prayer);
+    }
+  }
+  return groups;
+}
+
+const MINISTRY_ORDER = [...CANONICAL_MINISTRIES, "Unassigned"];
+
+/**
+ * Plain-text export grouped by ministry — for pasting into a Canva design
+ * (like the church's existing multi-page file) that's organized by
+ * ministry page rather than by prayer category. "Unassigned" (prayers
+ * whose ministry couldn't be matched) is listed last so it doesn't get
+ * lost among the 4 real sections.
+ */
+export function buildCopyForCanvaTextByMinistry(prayers: Prayer[]): string {
+  const groups = groupPrayersByMinistry(prayers);
+  const lines: string[] = [];
+  const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+
+  lines.push(`PRAYER LIST — Updated ${today}`);
+  lines.push("");
+
+  for (const ministry of MINISTRY_ORDER) {
+    const list = groups[ministry];
+    if (!list || list.length === 0) continue;
+    lines.push(ministry.toUpperCase());
+    for (const p of list) {
+      lines.push(`• ${formatPrayerLine(p)}`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n").trim();
+}
+
+/**
+ * Same grouping, but returned as one block per section instead of one big
+ * blob of text — so the admin can copy just the "Pastors" block, paste it
+ * into the Pastors slide, then come back for "Mens," and so on, without
+ * having to manually cut the combined text apart themselves.
+ */
+export function buildCopyBlocksByMinistry(prayers: Prayer[]): { label: string; count: number; text: string }[] {
+  const groups = groupPrayersByMinistry(prayers);
+  const blocks: { label: string; count: number; text: string }[] = [];
+
+  for (const ministry of MINISTRY_ORDER) {
+    const list = groups[ministry];
+    if (!list || list.length === 0) continue;
+    blocks.push({
+      label: ministry,
+      count: list.length,
+      text: list.map((p) => `• ${formatPrayerLine(p)}`).join("\n"),
+    });
+  }
+
+  return blocks;
+}
+
+/** Same idea as buildCopyBlocksByMinistry, but grouped by prayer category
+ * bucket instead — for the "Category" grouping toggle. */
+export function buildCopyBlocksByCategory(prayers: Prayer[]): { label: string; count: number; text: string }[] {
+  const groups = groupPrayersByBucket(prayers);
+  const blocks: { label: string; count: number; text: string }[] = [];
+
+  for (const bucket of Object.keys(BUCKET_LABELS) as PrayerBucket[]) {
+    const list = groups[bucket];
+    if (!list || list.length === 0) continue;
+    blocks.push({
+      label: BUCKET_LABELS[bucket],
+      count: list.length,
+      text: list.map((p) => `• ${formatPrayerLine(p)}`).join("\n"),
+    });
+  }
+
+  return blocks;
 }
 
 /** Plain-text export for the "Copy for Canva" fallback — no API access required. */

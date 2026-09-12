@@ -24,6 +24,7 @@ export const CANVA_SCOPES = [
   "brandtemplate:content:read",
   "asset:read",
   "asset:write",
+  "profile:read",
 ].join(" ");
 
 export function getRedirectUri(): string {

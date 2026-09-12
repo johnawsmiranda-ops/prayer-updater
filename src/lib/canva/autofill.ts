@@ -51,6 +51,28 @@ export class CanvaNotConnectedError extends Error {
   }
 }
 
+/** Carries the HTTP status so callers can translate to a human message without leaking raw API text. */
+export class CanvaApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "CanvaApiError";
+    this.status = status;
+  }
+}
+
+async function assertOk(res: Response, action: string): Promise<void> {
+  if (res.ok) return;
+  let detail = "";
+  try {
+    const body = await res.json();
+    detail = body?.error?.message ?? body?.message ?? "";
+  } catch {
+    // response wasn't JSON — nothing more to extract
+  }
+  throw new CanvaApiError(res.status, `${action} failed (HTTP ${res.status})${detail ? `: ${detail}` : ""}`);
+}
+
 export async function createAutofillJob(
   brandTemplateId: string,
   data: Record<string, AutofillFieldValue>
@@ -59,22 +81,61 @@ export async function createAutofillJob(
     method: "POST",
     body: JSON.stringify({ brand_template_id: brandTemplateId, data }),
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Canva autofill request failed (${res.status}): ${text}`);
-  }
+  await assertOk(res, "Creating the Canva autofill job");
   const body = await res.json();
   return body.job as AutofillJob;
 }
 
 export async function getAutofillJob(jobId: string): Promise<AutofillJob> {
   const res = await canvaFetch(`/autofills/${jobId}`);
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Failed to fetch Canva autofill job (${res.status}): ${text}`);
-  }
+  await assertOk(res, "Checking the Canva autofill job");
   const body = await res.json();
   return body.job as AutofillJob;
+}
+
+export interface CanvaDesign {
+  id: string;
+  title: string | null;
+  editUrl: string | null;
+  viewUrl: string | null;
+  thumbnailUrl: string | null;
+  pageCount: number | null;
+  updatedAt: string | null; // ISO
+}
+
+/**
+ * Fetches live metadata for a design the connected account owns — including
+ * a fresh edit_url (Canva's edit/view URLs are temporary, valid ~30 minutes,
+ * so this must be called fresh each time "Edit in Canva" is clicked, not
+ * cached). Works for any design in the account, not just Brand Templates.
+ * Reference: https://www.canva.dev/docs/connect/api-reference/designs/get-design/
+ */
+export async function getDesign(designId: string): Promise<CanvaDesign> {
+  const res = await canvaFetch(`/designs/${designId}`);
+  await assertOk(res, "Fetching the Canva design");
+  const body = await res.json();
+  const d = body.design ?? {};
+  return {
+    id: d.id ?? designId,
+    title: d.title ?? null,
+    editUrl: d.urls?.edit_url ?? null,
+    viewUrl: d.urls?.view_url ?? null,
+    thumbnailUrl: d.thumbnail?.url ?? null,
+    pageCount: typeof d.page_count === "number" ? d.page_count : null,
+    updatedAt: typeof d.updated_at === "number" ? new Date(d.updated_at * 1000).toISOString() : null,
+  };
+}
+
+/**
+ * The signed-in Canva account's display name, so the connection card can
+ * show *who* is connected. Requires the profile:read scope.
+ * Reference: https://www.canva.dev/docs/connect/api-reference/users/users-profile/
+ */
+export async function getConnectedAccountName(): Promise<string | null> {
+  const res = await canvaFetch(`/users/me/profile`);
+  if (!res.ok) return null; // non-critical — connection still works without it
+  const body = await res.json();
+  return body.profile?.display_name ?? null;
 }
 
 /** Polls a just-created autofill job for up to ~15s (autofills are typically fast). */
@@ -91,10 +152,7 @@ export async function waitForAutofillJob(jobId: string, maxWaitMs = 15_000): Pro
 /** Lists the Brand Templates the connected Canva account can autofill into. */
 export async function listBrandTemplates(): Promise<{ id: string; title: string }[]> {
   const res = await canvaFetch("/brand-templates");
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Failed to list Canva brand templates (${res.status}): ${text}`);
-  }
+  await assertOk(res, "Listing your Canva brand templates");
   const body = await res.json();
   return (body.items ?? []).map((t: { id: string; title: string }) => ({ id: t.id, title: t.title }));
 }
@@ -102,10 +160,7 @@ export async function listBrandTemplates(): Promise<{ id: string; title: string 
 /** Reads the fillable field names of a Brand Template's dataset. */
 export async function getBrandTemplateDataset(templateId: string): Promise<string[]> {
   const res = await canvaFetch(`/brand-templates/${templateId}/dataset`);
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Failed to fetch Canva brand template dataset (${res.status}): ${text}`);
-  }
+  await assertOk(res, "Fetching the Canva brand template's fields");
   const body = await res.json();
   return Object.keys(body.dataset ?? {});
 }

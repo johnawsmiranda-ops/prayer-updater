@@ -52,3 +52,25 @@ export async function deletePrayerAction(id: string) {
   await deletePrayer(id);
   touch();
 }
+
+// --- Bulk variants, for the toolbar's multi-select actions ---
+
+export async function bulkMarkAnsweredAction(ids: string[]) {
+  await Promise.all(ids.map((id) => markAnswered(id)));
+  touch();
+}
+
+export async function bulkArchivePrayerAction(ids: string[]) {
+  await Promise.all(ids.map((id) => archivePrayer(id)));
+  touch();
+}
+
+export async function bulkReactivatePrayerAction(ids: string[]) {
+  await Promise.all(ids.map((id) => reactivatePrayer(id)));
+  touch();
+}
+
+export async function bulkDeletePrayerAction(ids: string[]) {
+  await Promise.all(ids.map((id) => deletePrayer(id)));
+  touch();
+}

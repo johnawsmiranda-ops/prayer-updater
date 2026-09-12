@@ -1,5 +1,6 @@
 import { listPrayers, getFilterOptions, getPrayerCounts, type SortKey } from "@/lib/prayers";
 import { getNeedsReviewThreshold } from "@/lib/needsReview";
+import { getCanvaConnection } from "@/lib/canva/connection";
 import PrayerListClient from "@/components/PrayerListClient";
 import type { PrayerStatus } from "@/types/prayer";
 
@@ -17,11 +18,12 @@ export default async function PrayersPage({ searchParams }: PageProps<"/prayers"
   const ministry = get("ministry");
   const sort = (get("sort") as SortKey | undefined) ?? "newest";
   const page = get("page") ? Number(get("page")) : 1;
+  const pageSize = get("pageSize") ? Number(get("pageSize")) : 10;
   const needsReviewOnly = get("review") === "1";
 
   const threshold = getNeedsReviewThreshold();
 
-  const [{ prayers, total, pageSize }, options, counts] = await Promise.all([
+  const [{ prayers, total }, options, counts, canvaConnection] = await Promise.all([
     listPrayers({
       filters: {
         search,
@@ -35,10 +37,11 @@ export default async function PrayersPage({ searchParams }: PageProps<"/prayers"
       },
       sort,
       page,
-      pageSize: 25,
+      pageSize,
     }),
     getFilterOptions(),
     getPrayerCounts(threshold),
+    getCanvaConnection(),
   ]);
 
   return (
@@ -51,6 +54,7 @@ export default async function PrayersPage({ searchParams }: PageProps<"/prayers"
       counts={counts}
       reviewThresholdDays={threshold}
       currentFilters={{ search, year, month, status, category, ministry, sort, needsReviewOnly }}
+      canva={{ connected: canvaConnection.connection_status === "CONNECTED", lastSyncedAt: canvaConnection.last_synced_at }}
     />
   );
 }

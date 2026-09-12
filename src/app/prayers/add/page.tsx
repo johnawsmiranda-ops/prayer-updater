@@ -12,7 +12,7 @@ export default async function AddPrayerPage() {
       </h1>
       <p className="text-sm text-[var(--muted)] mb-6">Add a new request to the prayer list.</p>
       <div className="card p-6">
-        <AddPrayerForm categories={options.categories} ministries={options.ministries} />
+        <AddPrayerForm categories={options.categories} />
       </div>
     </div>
   );

@@ -1,61 +1,46 @@
 /**
- * Imports the church's existing Prayer List Excel workbook into Supabase.
+ * Imports the church's original Prayer List Excel workbook (two sheets:
+ * "Healing" and "General Prayer", the church's own column names) into this
+ * app's canonical single-sheet workbook — the app's actual "database" file.
  *
  * Usage:
- *   npx tsx scripts/import-excel.ts "/path/to/Prayer-list-Updated-08-09-2026.xlsx"
+ *   npm run import:excel -- "/path/to/Prayer-list-Updated-08-09-2026.xlsx"
  *
- * Requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in the environment
- * (e.g. `.env.local`, loaded automatically if you run via `npm run import`).
- *
- * This is a one-time / occasional admin tool, not part of the deployed app —
- * that's why `xlsx` lives in devDependencies rather than the app's runtime
- * dependencies (it has known advisories that don't matter for a local,
- * trusted-file import script, but shouldn't ship in the Vercel bundle).
+ * This writes to the SAME storage the running app reads from (a local file
+ * under data/ by default, or Vercel Blob if BLOB_READ_WRITE_TOKEN is set in
+ * your environment) — so run it once against local storage before your
+ * first `npm run dev`, and once with BLOB_READ_WRITE_TOKEN set (or from a
+ * Vercel deployment's environment) to seed production.
  *
  * Nothing from the original spreadsheet is discarded: the raw "Status" text
- * is preserved in `source_status_raw` even after normalization, and every
- * row from every sheet becomes one `prayers` row.
+ * is preserved in `source_status_raw` even after normalization.
  */
 import * as XLSX from "xlsx";
-import { createClient } from "@supabase/supabase-js";
 import path from "path";
-
-interface ParsedRow {
-  year: number;
-  name: string;
-  prayer_request: string;
-  requested_by: string | null;
-  category: string;
-  assigned_ministry: string | null;
-  status: "ACTIVE" | "ANSWERED" | "ARCHIVED";
-  date_answered: string | null;
-  source_status_raw: string | null;
-  notes: string | null;
-}
+import crypto from "crypto";
+import { loadDb, saveDb } from "@/lib/store/workbook";
+import type { Prayer } from "@/types/prayer";
 
 /**
  * Normalizes the church's historical, free-text "Status" column into the
- * app's three statuses, per the mapping in the project brief:
+ * app's three statuses:
  *   "Continues Prayer" / "Continue prayer" -> ACTIVE
- *   "Answered Prayer" / "Answered"          -> ANSWERED
- *   "No Update"                              -> ACTIVE (still surfaces as
- *                                               Needs Review once it's old)
+ *   "Answered Prayer" / "Answered"          -> ANSWERED (date extracted if present)
+ *   "No Update"                              -> ACTIVE (surfaces as Needs
+ *                                               Review once it's old)
  *   "With his/her Creator" (passed away)     -> ARCHIVED
  *   Anything else                            -> ACTIVE, kept verbatim in
  *                                               source_status_raw
- * A trailing "- Updated DD/MM/YYYY" or similar is extracted as the answered
- * date when the status is Answered; otherwise it's just noted.
  */
 function normalizeStatus(raw: string | null | undefined): {
-  status: ParsedRow["status"];
+  status: Prayer["status"];
   dateAnswered: string | null;
 } {
   const text = (raw ?? "").trim();
   if (!text || /no update/i.test(text)) return { status: "ACTIVE", dateAnswered: null };
   if (/answered/i.test(text)) {
     const dateMatch = text.match(/(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})/);
-    const dateAnswered = dateMatch ? toIsoDate(dateMatch) : null;
-    return { status: "ANSWERED", dateAnswered };
+    return { status: "ANSWERED", dateAnswered: dateMatch ? toIsoDate(dateMatch) : null };
   }
   if (/with (his|her|the lord|creator)/i.test(text)) return { status: "ARCHIVED", dateAnswered: null };
   if (/continue/i.test(text)) return { status: "ACTIVE", dateAnswered: null };
@@ -75,11 +60,9 @@ function cellStr(value: unknown): string | null {
   return str.length > 0 ? str : null;
 }
 
-function parseSheet(sheet: XLSX.WorkSheet, defaultCategory: string): ParsedRow[] {
+function parseSheet(sheet: XLSX.WorkSheet, defaultCategory: string): Prayer[] {
   const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false });
 
-  // Header row is the first row that contains "Name" (both sheets have a
-  // couple of title rows above the real header, per the source file).
   const headerIndex = rows.findIndex((row) => row.some((cell) => /name/i.test(String(cell ?? ""))));
   if (headerIndex === -1) return [];
 
@@ -97,7 +80,8 @@ function parseSheet(sheet: XLSX.WorkSheet, defaultCategory: string): ParsedRow[]
     status: colIndex("status"),
   };
 
-  const parsed: ParsedRow[] = [];
+  const parsed: Prayer[] = [];
+  const ts = new Date().toISOString();
 
   for (const row of rows.slice(headerIndex + 1)) {
     const name = cellStr(row[idx.name]);
@@ -106,8 +90,10 @@ function parseSheet(sheet: XLSX.WorkSheet, defaultCategory: string): ParsedRow[]
     const rawStatus = cellStr(row[idx.status]);
     const { status, dateAnswered } = normalizeStatus(rawStatus);
     const explicitDateAnswered = cellStr(row[idx.dateAnswered]);
+    const dateAdded = `${Number(row[idx.year]) || new Date().getFullYear()}-01-01`;
 
     parsed.push({
+      id: crypto.randomUUID(),
       year: Number(row[idx.year]) || new Date().getFullYear(),
       name,
       prayer_request: cellStr(row[idx.request]) ?? "",
@@ -115,9 +101,13 @@ function parseSheet(sheet: XLSX.WorkSheet, defaultCategory: string): ParsedRow[]
       category: cellStr(row[idx.category]) ?? defaultCategory,
       assigned_ministry: cellStr(row[idx.ministry]),
       status,
+      notes: null,
+      date_added: dateAdded,
+      last_updated: ts,
       date_answered: explicitDateAnswered ?? dateAnswered,
       source_status_raw: rawStatus,
-      notes: null,
+      created_at: ts,
+      updated_at: ts,
     });
   }
 
@@ -127,19 +117,12 @@ function parseSheet(sheet: XLSX.WorkSheet, defaultCategory: string): ParsedRow[]
 async function main() {
   const filePath = process.argv[2];
   if (!filePath) {
-    console.error("Usage: npx tsx scripts/import-excel.ts <path-to-xlsx>");
-    process.exit(1);
-  }
-
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    console.error("Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY in the environment.");
+    console.error("Usage: npm run import:excel -- <path-to-xlsx>");
     process.exit(1);
   }
 
   const workbook = XLSX.readFile(path.resolve(filePath));
-  const allRows: ParsedRow[] = [];
+  const allRows: Prayer[] = [];
 
   for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
@@ -154,22 +137,12 @@ async function main() {
     process.exit(1);
   }
 
-  const supabase = createClient(url, key);
-  const batchSize = 100;
-  let inserted = 0;
+  const db = await loadDb();
+  const existingCount = db.prayers.length;
+  db.prayers.push(...allRows);
+  await saveDb(db);
 
-  for (let i = 0; i < allRows.length; i += batchSize) {
-    const batch = allRows.slice(i, i + batchSize);
-    const { error } = await supabase.from("prayers").insert(batch);
-    if (error) {
-      console.error("Insert failed:", error.message);
-      process.exit(1);
-    }
-    inserted += batch.length;
-    console.log(`Inserted ${inserted}/${allRows.length}`);
-  }
-
-  console.log(`\nDone. Imported ${inserted} prayers.`);
+  console.log(`\nDone. Imported ${allRows.length} prayers (${existingCount} were already in the app's data).`);
   const answered = allRows.filter((r) => r.status === "ANSWERED").length;
   const archived = allRows.filter((r) => r.status === "ARCHIVED").length;
   console.log(`  Active: ${allRows.length - answered - archived}, Answered: ${answered}, Archived: ${archived}`);

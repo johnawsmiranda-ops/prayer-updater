@@ -26,6 +26,18 @@ export default async function SettingsPage() {
       </section>
 
       <section className="card p-5">
+        <h2 className="text-sm font-semibold mb-2">Your data</h2>
+        <p className="text-sm text-[var(--muted)] mb-3">
+          The prayer list database is a single Excel file. Locally it lives in{" "}
+          <code className="font-mono">data/prayer-list.xlsx</code>; once deployed to Vercel it&apos;s stored in
+          Vercel Blob so it survives across deployments. You can download the current file any time.
+        </p>
+        <a href="/api/export" className="btn btn-secondary">
+          Download Excel file
+        </a>
+      </section>
+
+      <section className="card p-5">
         <h2 className="text-sm font-semibold mb-2">Canva integration</h2>
         <p className="text-sm text-[var(--muted)] mb-2">
           Manage the Canva connection, template, and field mapping from the Canva tab in the main navigation.
