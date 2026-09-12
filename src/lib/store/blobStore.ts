@@ -20,7 +20,16 @@ const BLOB_PATHNAME = "prayer-updater/prayer-list.xlsx";
 const LOCAL_PATH = path.join(process.cwd(), "data", "prayer-list.xlsx");
 
 function blobConfigured(): boolean {
-  return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+  // Two ways a Vercel Blob store can be wired up to this project:
+  //  - the older static token, BLOB_READ_WRITE_TOKEN
+  //  - the newer "Connect to Project" flow, which uses OIDC instead: it sets
+  //    BLOB_STORE_ID and Vercel auto-injects a VERCEL_OIDC_TOKEN at runtime
+  //    (no static token ever appears in the env vars list for that kind of
+  //    connection). @vercel/blob's put/list calls already know how to use
+  //    either automatically — this just needs to recognize both as "configured"
+  //    so it doesn't silently fall back to the (non-persistent, in production)
+  //    local file path when only the OIDC-style connection is present.
+  return Boolean(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID);
 }
 
 export async function readWorkbookBytes(): Promise<Buffer | null> {
