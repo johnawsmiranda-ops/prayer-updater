@@ -7,6 +7,7 @@ import { needsReview, daysSinceUpdate } from "@/lib/needsReview";
 import { formatDate, formatRelative } from "@/lib/format";
 import { categoryBadgeStyle, ministryColor } from "@/lib/badgeColors";
 import { CANONICAL_MINISTRIES } from "@/lib/ministries";
+import ActionNotice from "@/components/ActionNotice";
 import {
   updatePrayerAction,
   markAnsweredAction,
@@ -62,7 +63,10 @@ export default function PrayerListClient({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [view, setView] = useState<"list" | "grid">("list");
+  const [notice, setNotice] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const notify = (message: string) => setNotice(message);
 
   const setParam = useCallback(
     (key: string, value: string | null, opts: { resetPage?: boolean } = { resetPage: true }) => {
@@ -240,13 +244,15 @@ export default function PrayerListClient({
             <button
               className="btn btn-secondary"
               disabled={selected.size === 0 || isPending}
-              onClick={() =>
-                startTransition(() =>
-                  clearSelectionAnd(() => {
-                    bulkMarkAnsweredAction(Array.from(selected));
-                  })
-                )
-              }
+              onClick={() => {
+                const count = selected.size;
+                startTransition(() => {
+                  bulkMarkAnsweredAction(Array.from(selected)).then(() => {
+                    clearSelectionAnd(() => {});
+                    notify(`${count} prayer${count === 1 ? "" : "s"} marked as answered.`);
+                  });
+                });
+              }}
             >
               ✓ Mark as Answered
             </button>
@@ -256,13 +262,15 @@ export default function PrayerListClient({
             <button
               className="btn btn-secondary"
               disabled={selected.size === 0 || isPending}
-              onClick={() =>
-                startTransition(() =>
-                  clearSelectionAnd(() => {
-                    bulkArchivePrayerAction(Array.from(selected));
-                  })
-                )
-              }
+              onClick={() => {
+                const count = selected.size;
+                startTransition(() => {
+                  bulkArchivePrayerAction(Array.from(selected)).then(() => {
+                    clearSelectionAnd(() => {});
+                    notify(`${count} prayer${count === 1 ? "" : "s"} archived.`);
+                  });
+                });
+              }}
             >
               🗄 Archive
             </button>
@@ -270,13 +278,15 @@ export default function PrayerListClient({
             <button
               className="btn btn-secondary"
               disabled={selected.size === 0 || isPending}
-              onClick={() =>
-                startTransition(() =>
-                  clearSelectionAnd(() => {
-                    bulkReactivatePrayerAction(Array.from(selected));
-                  })
-                )
-              }
+              onClick={() => {
+                const count = selected.size;
+                startTransition(() => {
+                  bulkReactivatePrayerAction(Array.from(selected)).then(() => {
+                    clearSelectionAnd(() => {});
+                    notify(`${count} prayer${count === 1 ? "" : "s"} reactivated.`);
+                  });
+                });
+              }}
             >
               ↺ Reactivate
             </button>
@@ -286,12 +296,14 @@ export default function PrayerListClient({
             className="btn btn-danger"
             disabled={selected.size === 0 || isPending}
             onClick={() => {
-              if (confirm(`Delete ${selected.size} prayer${selected.size === 1 ? "" : "s"}? This cannot be undone.`)) {
-                startTransition(() =>
-                  clearSelectionAnd(() => {
-                    bulkDeletePrayerAction(Array.from(selected));
-                  })
-                );
+              const count = selected.size;
+              if (confirm(`Delete ${count} prayer${count === 1 ? "" : "s"}? This cannot be undone.`)) {
+                startTransition(() => {
+                  bulkDeletePrayerAction(Array.from(selected)).then(() => {
+                    clearSelectionAnd(() => {});
+                    notify(`${count} prayer${count === 1 ? "" : "s"} deleted.`);
+                  });
+                });
               }
             }}
           >
@@ -350,6 +362,7 @@ export default function PrayerListClient({
             isPending={isPending}
             startTransition={startTransition}
             categories={options.categories}
+            onNotify={notify}
           />
         ) : (
           <PrayerGrid
@@ -377,6 +390,8 @@ export default function PrayerListClient({
           </div>
         </div>
       </div>
+
+      {notice && <ActionNotice message={notice} onClose={() => setNotice(null)} />}
     </div>
   );
 }
@@ -527,7 +542,12 @@ function StatCard({
     </>
   );
 
-  const className = `card p-4 text-left hover:shadow-sm transition-shadow ${active ? "ring-2" : ""}`;
+  // w-full/h-full + block-level flex column: without these, a <button> only
+  // takes the width/height of its content in some browsers, leaving dead
+  // zones around the icon/number where clicks land on the card but not on
+  // the button itself -- that's the "sometimes not working" the whole card
+  // needs to be clickable everywhere, not just directly on the text.
+  const className = `card p-4 text-left w-full h-full flex flex-col cursor-pointer hover:shadow-sm transition-shadow ${active ? "ring-2" : ""}`;
   const style = active ? { borderColor: "var(--accent)" as const } : undefined;
 
   if (href) {
@@ -538,7 +558,7 @@ function StatCard({
     );
   }
   return (
-    <button onClick={onClick} className={className} style={style}>
+    <button type="button" onClick={onClick} className={className} style={style}>
       {content}
     </button>
   );
@@ -690,6 +710,7 @@ function PrayerTable({
   isPending,
   startTransition,
   categories,
+  onNotify,
 }: {
   prayers: Prayer[];
   selected: Set<string>;
@@ -702,6 +723,7 @@ function PrayerTable({
   isPending: boolean;
   startTransition: (fn: () => void) => void;
   categories: string[];
+  onNotify: (message: string) => void;
 }) {
   return (
     <div className="card overflow-x-auto">
@@ -746,6 +768,7 @@ function PrayerTable({
               isPending={isPending}
               startTransition={startTransition}
               categories={categories}
+              onNotify={onNotify}
             />
           ))}
         </tbody>
@@ -766,6 +789,7 @@ function PrayerRow({
   isPending,
   startTransition,
   categories,
+  onNotify,
 }: {
   prayer: Prayer;
   selected: boolean;
@@ -778,6 +802,7 @@ function PrayerRow({
   isPending: boolean;
   startTransition: (fn: () => void) => void;
   categories: string[];
+  onNotify: (message: string) => void;
 }) {
   const [draft, setDraft] = useState(prayer);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -795,7 +820,10 @@ function PrayerRow({
         category: draft.category,
         assigned_ministry: draft.assigned_ministry,
         notes: draft.notes,
-      }).then(() => onStopEdit());
+      }).then(() => {
+        onStopEdit();
+        onNotify("Prayer updated.");
+      });
     });
   };
 
@@ -916,7 +944,9 @@ function PrayerRow({
                   disabled={isPending}
                   onClick={() => {
                     setMenuOpen(false);
-                    startTransition(() => markAnsweredAction(prayer.id));
+                    startTransition(() => {
+                      markAnsweredAction(prayer.id).then(() => onNotify("Prayer marked as answered."));
+                    });
                   }}
                 >
                   Mark Answered
@@ -928,7 +958,9 @@ function PrayerRow({
                   disabled={isPending}
                   onClick={() => {
                     setMenuOpen(false);
-                    startTransition(() => archivePrayerAction(prayer.id));
+                    startTransition(() => {
+                      archivePrayerAction(prayer.id).then(() => onNotify("Prayer archived."));
+                    });
                   }}
                 >
                   Archive
@@ -940,7 +972,9 @@ function PrayerRow({
                   disabled={isPending}
                   onClick={() => {
                     setMenuOpen(false);
-                    startTransition(() => reactivatePrayerAction(prayer.id));
+                    startTransition(() => {
+                      reactivatePrayerAction(prayer.id).then(() => onNotify("Prayer reactivated."));
+                    });
                   }}
                 >
                   Reactivate
@@ -952,7 +986,9 @@ function PrayerRow({
                 onClick={() => {
                   setMenuOpen(false);
                   if (confirm(`Delete the prayer request for ${prayer.name}? This cannot be undone.`)) {
-                    startTransition(() => deletePrayerAction(prayer.id));
+                    startTransition(() => {
+                      deletePrayerAction(prayer.id).then(() => onNotify("Prayer deleted."));
+                    });
                   }
                 }}
               >

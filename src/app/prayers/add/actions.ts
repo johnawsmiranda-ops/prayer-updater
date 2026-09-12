@@ -1,11 +1,11 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createPrayer } from "@/lib/prayers";
 
 export interface AddPrayerState {
   error?: string;
+  success?: boolean;
 }
 
 export async function addPrayerAction(_prev: AddPrayerState, formData: FormData): Promise<AddPrayerState> {
@@ -30,5 +30,8 @@ export async function addPrayerAction(_prev: AddPrayerState, formData: FormData)
   });
 
   revalidatePath("/prayers");
-  redirect("/prayers");
+  // No server-side redirect here (on purpose) -- the client shows a
+  // confirmation the admin has to dismiss with OK/close first, then
+  // navigates back to the list itself.
+  return { success: true };
 }

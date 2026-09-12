@@ -1,14 +1,17 @@
 "use client";
 
 import { useActionState } from "react";
+import { useRouter } from "next/navigation";
 import { addPrayerAction, type AddPrayerState } from "./actions";
 import { CANONICAL_MINISTRIES } from "@/lib/ministries";
+import ActionNotice from "@/components/ActionNotice";
 
 const initialState: AddPrayerState = {};
 
 export default function AddPrayerForm({ categories }: { categories: string[] }) {
   const [state, formAction, pending] = useActionState(addPrayerAction, initialState);
   const currentYear = new Date().getFullYear();
+  const router = useRouter();
 
   return (
     <form action={formAction} className="space-y-4">
@@ -75,6 +78,10 @@ export default function AddPrayerForm({ categories }: { categories: string[] }) 
           Cancel
         </a>
       </div>
+
+      {state.success && (
+        <ActionNotice message="Prayer added." onClose={() => router.push("/prayers")} />
+      )}
     </form>
   );
 }
