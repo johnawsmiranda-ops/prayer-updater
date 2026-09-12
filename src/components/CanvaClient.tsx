@@ -223,7 +223,7 @@ function UpdateCanvaCard({
   const [isPending, startTransition] = useTransition();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [result, setResult] = useState<UpdateCanvaResult | null>(null);
-  const [groupBy, setGroupBy] = useState<"ministry" | "category">("ministry");
+  const [groupBy, setGroupBy] = useState<"ministry" | "category">("category");
 
   const scopeLabel =
     selection.ids && selection.ids.length > 0
