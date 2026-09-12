@@ -79,6 +79,24 @@ export default function PrayerListClient({
     [router, pathname, searchParams]
   );
 
+  // Like setParam, but sets/clears several query params in one navigation.
+  // Needed for the stat cards: switching from "Need Review" to "Active
+  // Prayers" (or any other combination) has to clear the params the other
+  // cards use in the SAME push, otherwise the old param is still there on
+  // the next render and the two filters combine instead of replacing.
+  const setParams = useCallback(
+    (entries: Array<[string, string | null]>) => {
+      const params = new URLSearchParams(searchParams.toString());
+      for (const [key, value] of entries) {
+        if (value === null || value === "") params.delete(key);
+        else params.set(key, value);
+      }
+      params.delete("page");
+      router.push(`${pathname}?${params.toString()}`);
+    },
+    [router, pathname, searchParams]
+  );
+
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
@@ -133,9 +151,14 @@ export default function PrayerListClient({
       )}
 
       <div className="p-4 md:p-8 max-w-[1400px] mx-auto">
-        {!archiveView && (
-          <StatsRow counts={counts} currentStatus={currentFilters.status} needsReviewOnly={currentFilters.needsReviewOnly} canva={canva} setParam={setParam} />
-        )}
+        <StatsRow
+          counts={counts}
+          currentStatus={currentFilters.status}
+          needsReviewOnly={currentFilters.needsReviewOnly}
+          canva={canva}
+          setParams={setParams}
+          archiveView={archiveView}
+        />
 
         {archiveView && (
           <div className="mb-6">
@@ -460,24 +483,32 @@ function StatsRow({
   currentStatus,
   needsReviewOnly,
   canva,
-  setParam,
+  setParams,
+  archiveView,
 }: {
   counts: PrayerListCounts;
   currentStatus?: string;
   needsReviewOnly?: boolean;
   canva?: { connected: boolean; lastSyncedAt: string | null };
-  setParam: (key: string, value: string | null) => void;
+  setParams: (entries: Array<[string, string | null]>) => void;
+  archiveView?: boolean;
 }) {
+  // On the Archive page, these query params wouldn't do anything (that page
+  // always filters to ARCHIVED regardless of ?status=/?review=), so instead
+  // of rewriting the current URL, these cards link back to the main Prayer
+  // List page already filtered the way the card describes.
   return (
-    <div className="grid grid-cols-2 md:grid-cols-5 gap-3 -mt-8 md:-mt-10 mb-6 relative z-10">
+    <div className={`grid grid-cols-2 md:grid-cols-5 gap-3 mb-6 relative z-10 ${archiveView ? "" : "-mt-8 md:-mt-10"}`}>
       <StatCard
         icon="🙏"
         iconBg="var(--green-soft)"
         value={counts.active}
         label="Active Prayers"
         sub="Currently on the list"
-        active={currentStatus === "ACTIVE" && !needsReviewOnly}
-        onClick={() => setParam("status", "ACTIVE")}
+        active={!archiveView && currentStatus === "ACTIVE" && !needsReviewOnly}
+        {...(archiveView
+          ? { href: "/prayers?status=ACTIVE" }
+          : { onClick: () => setParams([["status", "ACTIVE"], ["review", null]]) })}
       />
       <StatCard
         icon="🕐"
@@ -485,8 +516,10 @@ function StatsRow({
         value={counts.needsReview}
         label="Need Review"
         sub={`Not updated in 30+ days`}
-        active={Boolean(needsReviewOnly)}
-        onClick={() => setParam("review", "1")}
+        active={!archiveView && Boolean(needsReviewOnly)}
+        {...(archiveView
+          ? { href: "/prayers?review=1" }
+          : { onClick: () => setParams([["review", "1"], ["status", null]]) })}
       />
       <StatCard
         icon="✓"
@@ -494,10 +527,20 @@ function StatsRow({
         value={counts.answered}
         label="Answered"
         sub="Praise God!"
-        active={currentStatus === "ANSWERED"}
-        onClick={() => setParam("status", "ANSWERED")}
+        active={!archiveView && currentStatus === "ANSWERED"}
+        {...(archiveView
+          ? { href: "/prayers?status=ANSWERED" }
+          : { onClick: () => setParams([["status", "ANSWERED"], ["review", null]]) })}
       />
-      <StatCard icon="🗄" iconBg="#e5e5e5" value={counts.archived} label="Archived" sub="Past prayers" href="/archive" />
+      <StatCard
+        icon="🗄"
+        iconBg="#e5e5e5"
+        value={counts.archived}
+        label="Archived"
+        sub="Past prayers"
+        href="/archive"
+        active={archiveView}
+      />
       {canva && <CanvaBanner active={counts.active} connected={canva.connected} lastSyncedAt={canva.lastSyncedAt} />}
     </div>
   );
@@ -547,7 +590,7 @@ function StatCard({
   // zones around the icon/number where clicks land on the card but not on
   // the button itself -- that's the "sometimes not working" the whole card
   // needs to be clickable everywhere, not just directly on the text.
-  const className = `card p-4 text-left w-full h-full flex flex-col cursor-pointer hover:shadow-sm transition-shadow ${active ? "ring-2" : ""}`;
+  const className = `card card-clickable p-4 text-left w-full h-full flex flex-col cursor-pointer ${active ? "ring-2" : ""}`;
   const style = active ? { borderColor: "var(--accent)" as const } : undefined;
 
   if (href) {
